@@ -23,6 +23,7 @@ import config_store
 import engine
 import spicetify_bridge
 import ai_lighting_engine
+import govee_lan
 
 app = Flask(__name__)
 app.secret_key = "dev-only-local-secret"  # fine for a localhost-only tool
@@ -58,6 +59,38 @@ def setup():
 
     cfg = config_store.load_config()
     return render_template("setup.html", cfg=cfg, active_page="setup")
+
+
+@app.route("/api/govee/discover", methods=["POST"])
+def discover_govee_device():
+    """Find a LAN-visible Govee device matching the model entered in Setup."""
+    data = request.get_json(silent=True) or {}
+    model = str(data.get("model", "")).strip()
+    if not model:
+        return jsonify({"ok": False, "error": "Enter the device model / SKU first."}), 400
+
+    try:
+        devices = govee_lan.discover_devices(timeout=4.0)
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"Device discovery failed: {exc}"}), 500
+
+    matches = [
+        {"device_id": device_id, "sku": info.get("sku", "?")}
+        for device_id, info in devices.items()
+        if str(info.get("sku", "")).strip().casefold() == model.casefold()
+    ]
+    if not matches:
+        return jsonify({
+            "ok": False,
+            "error": (
+                f"No device with model {model} was found. Turn on LAN Control in the "
+                "Govee Home app and make sure the strip and this computer are on the same network."
+            ),
+        }), 404
+
+    # Return every matching device so the UI can report duplicates rather than
+    # silently putting the wrong strip's ID into the form.
+    return jsonify({"ok": True, "devices": matches})
 
 
 @app.after_request
