@@ -128,13 +128,19 @@
       <div class="row">
         <div class="field">
           <label>Device ID (MAC address)</label>
-          <input type="text" name="govee_device_id" value="{{ cfg.govee_device_id }}" placeholder="AA:BB:CC:DD:EE:FF:00:11">
+          <input type="text" name="govee_device_id" id="govee_device_id" value="{{ cfg.govee_device_id }}" placeholder="AA:BB:CC:DD:EE:FF:00:11">
         </div>
         <div class="field">
           <label>Device Model / SKU</label>
-          <input type="text" name="govee_device_model" value="{{ cfg.govee_device_model }}" placeholder="H619B">
+          <input type="text" name="govee_device_model" id="govee_device_model" value="{{ cfg.govee_device_model }}" placeholder="H619B">
         </div>
       </div>
+      <div class="row" style="margin-top: 10px; align-items:flex-start;">
+        <button type="button" class="secondary" id="detect-govee-btn" onclick="detectGoveeDevice()">
+          Detect Device
+        </button>
+      </div>
+      <p class="hint" id="detect-govee-result"></p>
       <p class="hint">Turn on <strong>LAN Control</strong> in the Govee Home app under this device's settings. Your computer and lights need to be on the same local network.</p>
     </div>
 
@@ -185,6 +191,61 @@
   }
   refreshSpicetifyStatus();
   setInterval(refreshSpicetifyStatus, 3000);
+
+  function detectGoveeDevice() {
+    const btn = document.getElementById('detect-govee-btn');
+    const result = document.getElementById('detect-govee-result');
+    const modelField = document.getElementById('govee_device_model');
+    const idField = document.getElementById('govee_device_id');
+    const model = modelField.value.trim();
+
+    result.style.color = 'var(--text-muted)';
+    if (!model) {
+      result.style.color = 'var(--err)';
+      result.textContent = 'Enter the device model / SKU before detecting.';
+      modelField.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Detecting…';
+    result.textContent = 'Searching your local network for this Govee device…';
+
+    fetch('/api/govee/discover', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: model})
+    })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || 'Device discovery failed.');
+        }
+        return data;
+      })
+      .then(data => {
+        if (!data.devices || data.devices.length === 0) {
+          throw new Error('No matching Govee device was found.');
+        }
+        if (data.devices.length > 1) {
+          result.style.color = 'var(--err)';
+          result.textContent = 'Multiple matching devices were found. Keep the SKU and enter one Device ID manually: ' +
+            data.devices.map(device => device.device_id).join(', ');
+          return;
+        }
+        idField.value = data.devices[0].device_id;
+        result.style.color = 'var(--ok)';
+        result.textContent = 'Found device ' + data.devices[0].device_id + ' — Device ID filled automatically.';
+      })
+      .catch(error => {
+        result.style.color = 'var(--err)';
+        result.textContent = error.message;
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Detect Device';
+      });
+  }
 
   function installExtension() {
     const btn = document.getElementById('install-extension-btn');
